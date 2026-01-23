@@ -1,9 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
+import 'screens/auth/login.dart';
+import 'screens/auth/signup.dart';
 
-void main() {
+
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   runApp(const EsbudenApp());
 }
+
 
 class EsbudenApp extends StatelessWidget {
   const EsbudenApp({super.key});
@@ -11,17 +20,22 @@ class EsbudenApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'ESBUDEN',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2F80ED)),
-        scaffoldBackgroundColor: const Color(0xFFF7F9FB),
-      ),
-      initialRoute: Routes.authLanding,
-      routes: appRoutes,
-    );
-  }
+  title: 'ESBUDEN',
+  debugShowCheckedModeBanner: false,
+  theme: ThemeData(
+    useMaterial3: true,
+    colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2F80ED)),
+    scaffoldBackgroundColor: const Color(0xFFF7F9FB),
+  ),
+
+  initialRoute: '/signup', // or '/login' or '/auth'
+  routes: {
+    '/login': (_) => const LoginScreen(),
+    '/signup': (_) => const SignupScreen(),
+    '/dashboard': (_) => const DashboardScreen(),
+  },
+);
+
 }
 
 /// ROUTES (simple for now — later we’ll split into routes.dart)

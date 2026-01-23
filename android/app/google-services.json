@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "995897121698",
+    "project_id": "esbuden-app-b8652",
+    "storage_bucket": "esbuden-app-b8652.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:995897121698:android:ffa2ad665162f4376cf0fb",
+        "android_client_info": {
+          "package_name": "com.example.esbuden"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAlnNTJWToPnJC-Rt0HeI1b3YZhpCo76fA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:995897121698:android:1f076f0dc8a74a6c6cf0fb",
+        "android_client_info": {
+          "package_name": "com.example.esbuden_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAlnNTJWToPnJC-Rt0HeI1b3YZhpCo76fA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
