@@ -20,30 +20,28 @@ class EsbudenApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-  title: 'ESBUDEN',
-  debugShowCheckedModeBanner: false,
-  theme: ThemeData(
-    useMaterial3: true,
-    colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2F80ED)),
-    scaffoldBackgroundColor: const Color(0xFFF7F9FB),
-  ),
+      title: 'ESBUDEN',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2F80ED)),
+        scaffoldBackgroundColor: const Color(0xFFF7F9FB),
+      ),
+      initialRoute: '/signup',
+      routes: {
+        '/login': (_) => const LoginScreen(),
+        '/signup': (_) => const SignupScreen(),
+        '/dashboard': (_) => const DashboardScreen(),
+      },
+    );
+  }
+} // 👈 👈 👈 THIS WAS MISSING
 
-  initialRoute: '/signup', // or '/login' or '/auth'
-  routes: {
-    '/login': (_) => const LoginScreen(),
-    '/signup': (_) => const SignupScreen(),
-    '/dashboard': (_) => const DashboardScreen(),
-  },
-);
-
-}
-
-/// ROUTES (simple for now — later we’ll split into routes.dart)
+/// ROUTES
 class Routes {
   static const authLanding = '/auth';
   static const login = '/login';
   static const signup = '/signup';
-
   static const dashboard = '/dashboard';
 
   static const connectAuto = '/test/connect';
