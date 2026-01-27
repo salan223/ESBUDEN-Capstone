@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
-import '../../services/auth_service.dart';
+
 import '../../routes.dart';
+import '../../services/auth_service.dart';
+import '../../services/test_service.dart';
+import '../../models/test_result.dart';
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
@@ -8,6 +11,7 @@ class DashboardScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final user = AuthService().currentUser;
+    final testService = TestService();
 
     return Scaffold(
       appBar: AppBar(
@@ -38,12 +42,74 @@ class DashboardScreen extends StatelessWidget {
             Text('UID: ${user?.uid ?? "Unknown"}'),
             Text('Email: ${user?.email ?? "Unknown"}'),
             Text('Name: ${user?.displayName ?? "Unknown"}'),
-            const SizedBox(height: 20),
-            const Text('Next steps:', style: TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            const Text('• Add Firestore reads for this user profile'),
-            const Text('• Build your real dashboard UI'),
-            const Text('• Add navigation to History / Settings / Home'),
+            const SizedBox(height: 16),
+
+            // Latest test
+            StreamBuilder<TestResult?>(
+              stream: testService.watchLatestTest(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Card(
+                    child: ListTile(
+                      title: Text('Latest Result'),
+                      subtitle: Text('Loading...'),
+                    ),
+                  );
+                }
+
+                final latest = snapshot.data;
+                if (latest == null) {
+                  return const Card(
+                    child: ListTile(
+                      title: Text('No tests yet'),
+                      subtitle: Text('Tap "Add Demo Test" to create your first result.'),
+                    ),
+                  );
+                }
+
+                final ox = latest.biomarkers['oxalate'];
+                final ph = latest.biomarkers['ph'];
+                final protein = latest.biomarkers['protein'];
+
+                final dateStr = latest.createdAt == null
+                    ? 'Unknown time'
+                    : '${latest.createdAt!.year}-${latest.createdAt!.month.toString().padLeft(2, '0')}-${latest.createdAt!.day.toString().padLeft(2, '0')}';
+
+                return Card(
+                  child: ListTile(
+                    title: Text('Latest: ${latest.overallRisk}'),
+                    subtitle: Text(
+                      'Oxalate: $ox • pH: $ph • Protein: $protein\n$dateStr • Source: ${latest.source}',
+                    ),
+                  ),
+                );
+              },
+            ),
+
+            const SizedBox(height: 12),
+
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () async {
+                  await testService.addDemoTest();
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Demo test saved ✅')),
+                  );
+                },
+                child: const Text('Add Demo Test'),
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            // (Optional) placeholder button for later history screen route
+            // Only keep this if you add Routes.history later.
+            // OutlinedButton(
+            //   onPressed: () => Navigator.pushNamed(context, Routes.history),
+            //   child: const Text('History & Reports'),
+            // ),
           ],
         ),
       ),
