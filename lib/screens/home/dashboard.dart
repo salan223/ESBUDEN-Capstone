@@ -13,7 +13,7 @@ class DashboardScreen extends StatelessWidget {
     final user = AuthService().currentUser;
     final testService = TestService();
 
-    
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Dashboard'),
@@ -105,7 +105,7 @@ class DashboardScreen extends StatelessWidget {
 
             const SizedBox(height: 12),
 
-            // (Optional) placeholder button for later history screen route
+            // (Optional) placeholder button for later history screen routes
             // Only keep this if you add Routes.history later.
             // OutlinedButton(
             //   onPressed: () => Navigator.pushNamed(context, Routes.history),
