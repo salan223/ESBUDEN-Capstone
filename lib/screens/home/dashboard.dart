@@ -109,7 +109,7 @@ class DashboardScreen extends StatelessWidget {
             // Only keep this if you add Routes.history later.
             // OutlinedButton(
             //   onPressed: () => Navigator.pushNamed(context, Routes.history),
-            //   child: const Text.
+            //   child: const Text('History & Reports'),
             // ),
           ],
         ),
