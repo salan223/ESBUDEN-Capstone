@@ -22,34 +22,45 @@ class TestService {
     return _db.collection('users').doc(_uid).collection('tests');
   }
 
-  Future<void> addDemoTest() async {
+  /// ✅ STEP 1: Save any result (demo now, bluetooth later) to Firestore
+  Future<void> saveTest(TestResult result) async {
+    await _testsRef().add(result.toMap());
+  }
+
+  /// Create a fake result for demo/preview (NOT saved until you call saveTest)
+  TestResult generateDemoResult() {
     final rng = Random();
 
-    final oxalate = (rng.nextDouble() * 20) + 5; // 5..25
-    final ph = (rng.nextDouble() * 2.5) + 5.0;   // 5.0..7.5
-    final protein = rng.nextDouble() * 30;       // 0..30
+    final calcium = (rng.nextDouble() * 2.0) + 1.0; // 1.0..3.0
+    final oxalate = (rng.nextDouble() * 0.8) + 0.1; // 0.1..0.9
+    final ph = (rng.nextDouble() * 2.5) + 5.0;      // 5.0..7.5
+    final uricAcid = (rng.nextDouble() * 0.6) + 0.1; // 0.1..0.7
 
     String risk;
-    if (oxalate < 12 && protein < 10) {
+    if (oxalate < 0.4) {
       risk = 'NORMAL';
-    } else if (oxalate < 18) {
+    } else if (oxalate < 0.65) {
       risk = 'WARNING';
     } else {
       risk = 'HIGH';
     }
 
-    final result = TestResult(
+    return TestResult(
       source: 'demo',
       deviceId: 'ESBUDEN-DEMO',
       overallRisk: risk,
       biomarkers: {
-        'oxalate': double.parse(oxalate.toStringAsFixed(1)),
+        'calcium': double.parse(calcium.toStringAsFixed(2)),
+        'oxalate': double.parse(oxalate.toStringAsFixed(2)),
         'ph': double.parse(ph.toStringAsFixed(1)),
-        'protein': double.parse(protein.toStringAsFixed(1)),
+        'uricAcid': double.parse(uricAcid.toStringAsFixed(2)),
       },
     );
+  }
 
-    await _testsRef().add(result.toMap());
+  /// Optional convenience: directly add a demo test to history
+  Future<void> addDemoTest() async {
+    await saveTest(generateDemoResult());
   }
 
   Stream<TestResult?> watchLatestTest() {

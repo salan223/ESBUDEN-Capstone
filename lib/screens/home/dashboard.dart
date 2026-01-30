@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../../models/test_result.dart';
 import '../../routes.dart';
 import '../../services/auth_service.dart';
 import '../../services/test_service.dart';
-import '../../models/test_result.dart';
+import '../test_flow/results.dart';
+import '../bluetooth/device_scan.dart';
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
@@ -12,7 +14,6 @@ class DashboardScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final user = AuthService().currentUser;
     final testService = TestService();
-
 
     return Scaffold(
       appBar: AppBar(
@@ -38,7 +39,10 @@ class DashboardScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Welcome 👋', style: Theme.of(context).textTheme.headlineSmall),
+            Text(
+              'Welcome 👋',
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
             const SizedBox(height: 8),
             Text('UID: ${user?.uid ?? "Unknown"}'),
             Text('Email: ${user?.email ?? "Unknown"}'),
@@ -63,7 +67,9 @@ class DashboardScreen extends StatelessWidget {
                   return const Card(
                     child: ListTile(
                       title: Text('No tests yet'),
-                      subtitle: Text('Tap "Add Demo Test" to create your first result.'),
+                      subtitle: Text(
+                        'Tap "Add Demo Test" to create your first result.',
+                      ),
                     ),
                   );
                 }
@@ -107,10 +113,29 @@ class DashboardScreen extends StatelessWidget {
 
             // (Optional) placeholder button for later history screen routes
             // Only keep this if you add Routes.history later.
-            // OutlinedButton(
-            //   onPressed: () => Navigator.pushNamed(context, Routes.history),
-            //   child: const Text('History & Reports'),
-            // ),
+            OutlinedButton(
+              onPressed: () {
+                final demo = TestService().generateDemoResult();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ResultsScreen(result: demo),
+                  ),
+                );
+              },
+              child: const Text('Preview Demo Result'),
+            ),
+
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const DeviceScanScreen()),
+                );
+              },
+              icon: const Icon(Icons.bluetooth),
+              label: const Text('Add Device'),
+            ),
           ],
         ),
       ),
