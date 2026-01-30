@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:app_settings/app_settings.dart';
 
+import 'package:esbuden_app/routes.dart'; // ✅ for Routes.btTroubleshoot
+
 class ConnectAutoPage extends StatefulWidget {
   const ConnectAutoPage({super.key});
 
@@ -10,88 +12,170 @@ class ConnectAutoPage extends StatefulWidget {
   State<ConnectAutoPage> createState() => _ConnectAutoPageState();
 }
 
-class _ConnectAutoPageState extends State<ConnectAutoPage>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _ringCtrl;
-
+class _ConnectAutoPageState extends State<ConnectAutoPage> {
   StreamSubscription<BluetoothAdapterState>? _adapterSub;
+  StreamSubscription<List<ScanResult>>? _scanSub;
+
   BluetoothAdapterState _adapterState = BluetoothAdapterState.unknown;
 
-  // placeholders (later: load from Firestore/local storage)
-  final String _lastDeviceName = 'ESBUDEN Device #4721';
-  final String _lastUsed = 'Nov 15, 2025';
+  final Map<String, ScanResult> _seen = {};
+  bool _isScanning = false;
+  bool _isConnecting = false;
+  String? _connectingId;
 
-  String get _title {
-    if (_adapterState == BluetoothAdapterState.off) return 'Bluetooth is off';
-    if (_adapterState == BluetoothAdapterState.on) return 'Connecting to ESBUDEN...';
-    return 'Checking Bluetooth...';
-  }
-
-  String get _subtitle {
-    if (_adapterState == BluetoothAdapterState.off) {
-      return 'Turn on Bluetooth to connect to your device.';
-    }
-    if (_adapterState == BluetoothAdapterState.on) {
-      return 'Attempting to auto-connect to your last device.';
-    }
-    return 'Please wait...';
-  }
-
-  String get _hint {
-    if (_adapterState == BluetoothAdapterState.off) return 'Bluetooth is disabled';
-    if (_adapterState == BluetoothAdapterState.on) return 'Keep ESBUDEN device nearby';
-    return 'Checking...';
-  }
-
-  bool get _isOn => _adapterState == BluetoothAdapterState.on;
+  bool get _btOn => _adapterState == BluetoothAdapterState.on;
 
   @override
   void initState() {
     super.initState();
 
-    _ringCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 2),
-    )..repeat();
-
-    _adapterSub = FlutterBluePlus.adapterState.listen((s) {
+    _adapterSub = FlutterBluePlus.adapterState.listen((s) async {
       if (!mounted) return;
       setState(() => _adapterState = s);
 
       if (s == BluetoothAdapterState.on) {
-        _startAutoConnectFlow();
+        await _startScan();
       } else {
-        FlutterBluePlus.stopScan();
+        await _stopScan();
       }
     });
 
-    FlutterBluePlus.adapterState.first.then((s) {
+    FlutterBluePlus.adapterState.first.then((s) async {
       if (!mounted) return;
       setState(() => _adapterState = s);
       if (s == BluetoothAdapterState.on) {
-        _startAutoConnectFlow();
+        await _startScan();
       }
     });
-  }
-
-  Future<void> _startAutoConnectFlow() async {
-    // Later: scan + connect to last device
-    try {
-      await FlutterBluePlus.startScan(timeout: const Duration(seconds: 6));
-    } catch (_) {
-      // ignore for now (permissions etc.)
-    }
   }
 
   @override
   void dispose() {
+    _scanSub?.cancel();
     _adapterSub?.cancel();
-    _ringCtrl.dispose();
+    FlutterBluePlus.stopScan();
     super.dispose();
+  }
+
+  Future<void> _stopScan() async {
+    _scanSub?.cancel();
+    _scanSub = null;
+
+    if (_isScanning) {
+      try {
+        await FlutterBluePlus.stopScan();
+      } catch (_) {}
+    }
+
+    _isScanning = false;
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _startScan() async {
+    if (!_btOn) return;
+
+    _seen.clear();
+
+    await _stopScan();
+    _isScanning = true;
+    if (mounted) setState(() {});
+
+    _scanSub = FlutterBluePlus.scanResults.listen((results) {
+      bool changed = false;
+      for (final r in results) {
+        final id = r.device.remoteId.str;
+        _seen[id] = r;
+        changed = true;
+      }
+      if (changed && mounted) setState(() {});
+    });
+
+    try {
+      await FlutterBluePlus.startScan(timeout: const Duration(seconds: 12));
+    } catch (_) {
+      // permissions / settings issues
+    } finally {
+      _isScanning = false;
+      if (mounted) setState(() {});
+    }
+  }
+
+  // Filter only ESBUDEN devices (change if your device advertises differently)
+  List<ScanResult> get _esbudenResults {
+    final list = _seen.values.where((r) {
+      final name = r.device.platformName.trim();
+      return name.toUpperCase().contains('ESBUDEN');
+    }).toList();
+
+    list.sort((a, b) => b.rssi.compareTo(a.rssi));
+    return list;
+  }
+
+  int _signalPercent(int rssi) {
+    final clamped = rssi.clamp(-100, -40);
+    final pct = ((clamped + 100) / 60.0) * 100.0;
+    return pct.round().clamp(0, 100);
+  }
+
+  Future<void> _connect(ScanResult r) async {
+    if (_isConnecting) return;
+
+    final device = r.device;
+    final id = device.remoteId.str;
+
+    setState(() {
+      _isConnecting = true;
+      _connectingId = id;
+    });
+
+    await _stopScan();
+
+    try {
+      // best-effort cleanup
+      try {
+        await device.disconnect();
+      } catch (_) {}
+
+      await device.connect(
+        license: License.free,
+        timeout: const Duration(seconds: 15),
+      );
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Connected to ${device.platformName} ✅')),
+      );
+
+      setState(() {
+        _isConnecting = false;
+        _connectingId = null;
+      });
+
+      // TODO: navigate to next step in your flow
+      // Navigator.pushReplacementNamed(context, Routes.insertStrip);
+
+    } catch (_) {
+      if (!mounted) return;
+
+      setState(() {
+        _isConnecting = false;
+        _connectingId = null;
+      });
+
+      await _startScan();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not connect. Try again.')),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final devices = _esbudenResults;
+
     return Scaffold(
       appBar: AppBar(
         leading: BackButton(onPressed: () => Navigator.pop(context)),
@@ -101,151 +185,133 @@ class _ConnectAutoPageState extends State<ConnectAutoPage>
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 18),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const SizedBox(height: 28),
-
-              SizedBox(
-                height: 220,
-                width: 220,
-                child: AnimatedBuilder(
-                  animation: _ringCtrl,
-                  builder: (context, _) {
-                    return CustomPaint(
-                      painter: _RingsPainter(
-                        progress: _ringCtrl.value,
-                        enabled: _isOn,
-                      ),
-                      child: Center(
-                        child: Container(
-                          height: 72,
-                          width: 72,
-                          decoration: BoxDecoration(
-                            color: Theme.of(context).colorScheme.primary,
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.bluetooth,
-                            color: Colors.white,
-                            size: 34,
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-
               const SizedBox(height: 18),
 
               Text(
-                _title,
-                textAlign: TextAlign.center,
+                'Select Device',
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                       fontWeight: FontWeight.w800,
                     ),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 6),
               Text(
-                _subtitle,
-                textAlign: TextAlign.center,
+                'Choose an ESBUDEN device to connect.',
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                       color: Colors.black54,
                     ),
               ),
 
-              const SizedBox(height: 18),
+              const SizedBox(height: 16),
 
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary.withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.circle,
-                      size: 10,
-                      color: _isOn ? Colors.green : Colors.orange,
-                    ),
-                    const SizedBox(width: 10),
-                    Text(
-                      _hint,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: Theme.of(context).colorScheme.primary,
-                            fontWeight: FontWeight.w600,
-                          ),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 18),
-
-              Card(
-                elevation: 1,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        'Last connected device',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        _lastDeviceName,
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.w800,
-                            ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Last used: $_lastUsed',
-                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                              color: Colors.black54,
-                            ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              const Spacer(),
-
-              if (!_isOn)
-                SizedBox(
-                  width: double.infinity,
-                  height: 54,
-                  child: FilledButton.icon(
-                    onPressed: () {
-                      AppSettings.openAppSettings(type: AppSettingsType.bluetooth);
-                    },
-                    icon: const Icon(Icons.bluetooth),
-                    label: const Text(
-                      'Turn on Bluetooth',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
+              if (!_btOn)
+                _InfoBanner(
+                  text: 'Bluetooth is off. Turn it on to scan.',
+                  actionText: 'Turn on',
+                  isLoading: false,
+                  onTap: () => AppSettings.openAppSettings(
+                    type: AppSettingsType.bluetooth,
                   ),
                 )
               else
-                TextButton(
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Device picker (wire later)')),
-                    );
-                  },
-                  child: const Text('Connect to a different device'),
+                _InfoBanner(
+                  text: _isScanning ? 'Scanning for devices…' : 'Scan complete',
+                  actionText: 'Rescan',
+                  isLoading: _isScanning, // ✅ spinner while scanning
+                  onTap: _startScan,
                 ),
 
-              const SizedBox(height: 18),
+              const SizedBox(height: 14),
+
+              Expanded(
+                child: ListView(
+                  children: [
+                    if (_btOn && devices.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          _isScanning
+                              ? 'No ESBUDEN devices found yet…'
+                              : 'No ESBUDEN devices found. Make sure it’s on and nearby.',
+                          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                color: Colors.black54,
+                              ),
+                        ),
+                      ),
+
+                    ...devices.map((r) {
+                      final name = r.device.platformName.trim().isEmpty
+                          ? 'ESBUDEN Device'
+                          : r.device.platformName.trim();
+                      final pct = _signalPercent(r.rssi);
+                      final isThisConnecting =
+                          _connectingId == r.device.remoteId.str;
+
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 14),
+                        child: _DeviceCard(
+                          name: name,
+                          percent: pct,
+                          isConnecting: isThisConnecting,
+                          onConnect: (_btOn && !_isConnecting)
+                              ? () => _connect(r)
+                              : null,
+                        ),
+                      );
+                    }),
+
+                    const SizedBox(height: 6),
+                    Card(
+                      elevation: 1,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Connection Tips',
+                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                            ),
+                            const SizedBox(height: 12),
+                            const _Tip('Ensure your device is powered on'),
+                            const _Tip('Keep device within 10 feet (3 meters)'),
+                            const _Tip('Make sure Bluetooth is enabled on your phone'),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 18),
+
+                    // ✅ Opens troubleshooting, then auto-rescans on return
+                    Center(
+                      child: TextButton(
+                        onPressed: () async {
+                          final shouldRescan = await Navigator.pushNamed(
+                            context,
+                            Routes.btTroubleshoot,
+                          );
+
+                          if (!mounted) return;
+
+                          if (shouldRescan == true && _btOn) {
+                            await _startScan();
+                          }
+                        },
+                        child: const Text('Having trouble connecting?'),
+                      ),
+                    ),
+
+                    const SizedBox(height: 10),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
@@ -254,32 +320,211 @@ class _ConnectAutoPageState extends State<ConnectAutoPage>
   }
 }
 
-class _RingsPainter extends CustomPainter {
-  _RingsPainter({required this.progress, required this.enabled});
+class _InfoBanner extends StatelessWidget {
+  const _InfoBanner({
+    required this.text,
+    required this.actionText,
+    required this.isLoading,
+    required this.onTap,
+  });
 
-  final double progress;
-  final bool enabled;
+  final String text;
+  final String actionText;
+  final bool isLoading;
+  final VoidCallback onTap;
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final baseOpacity = enabled ? 0.10 : 0.05;
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
 
-    for (int i = 1; i <= 3; i++) {
-      final t = (progress + (i * 0.18)) % 1.0;
-      final radius = 40 + (t * 70);
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: primary.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          children: [
+            // ✅ Always animates: indeterminate spinner
+            if (isLoading)
+              const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(strokeWidth: 2.5),
+              )
+            else
+              Icon(Icons.autorenew, color: primary),
 
-      final paint = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 18
-        ..color = Colors.blue.withOpacity((1 - t) * baseOpacity);
+            const SizedBox(width: 10),
 
-      canvas.drawCircle(center, radius, paint);
-    }
+            Expanded(
+              child: Text(
+                text,
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: primary,
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+            ),
+
+            Text(
+              actionText,
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    color: primary,
+                    fontWeight: FontWeight.w800,
+                  ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DeviceCard extends StatelessWidget {
+  const _DeviceCard({
+    required this.name,
+    required this.percent,
+    required this.isConnecting,
+    required this.onConnect,
+  });
+
+  final String name;
+  final int percent;
+  final bool isConnecting;
+  final VoidCallback? onConnect;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            Container(
+              height: 54,
+              width: 54,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primary.withOpacity(0.10),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(
+                Icons.bluetooth,
+                color: Theme.of(context).colorScheme.primary,
+                size: 28,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      _SignalBars(percent: percent),
+                      const SizedBox(width: 8),
+                      Text(
+                        '$percent%',
+                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                              color: Colors.black54,
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            SizedBox(
+              height: 44,
+              child: FilledButton(
+                onPressed: onConnect,
+                child: Text(
+                  isConnecting ? 'Connecting...' : 'Connect',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SignalBars extends StatelessWidget {
+  const _SignalBars({required this.percent});
+  final int percent;
+
+  int get bars {
+    if (percent >= 80) return 4;
+    if (percent >= 60) return 3;
+    if (percent >= 40) return 2;
+    if (percent >= 20) return 1;
+    return 0;
   }
 
   @override
-  bool shouldRepaint(covariant _RingsPainter oldDelegate) {
-    return oldDelegate.progress != progress || oldDelegate.enabled != enabled;
+  Widget build(BuildContext context) {
+    Widget bar(bool on) => Container(
+          width: 6,
+          height: on ? 14 : 10,
+          margin: const EdgeInsets.only(right: 3),
+          decoration: BoxDecoration(
+            color: on ? Theme.of(context).colorScheme.primary : Colors.black12,
+            borderRadius: BorderRadius.circular(3),
+          ),
+        );
+
+    return Row(
+      children: [
+        bar(bars >= 1),
+        bar(bars >= 2),
+        bar(bars >= 3),
+        bar(bars >= 4),
+      ],
+    );
+  }
+}
+
+class _Tip extends StatelessWidget {
+  const _Tip(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.circle, size: 8, color: primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    color: primary,
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
