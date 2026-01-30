@@ -130,9 +130,10 @@ class DashboardScreen extends StatelessWidget {
                       const SizedBox(height: 6),
                       Text(
                         'Track your kidney health',
-                        style: Theme.of(
-                          context,
-                        ).textTheme.bodyLarge?.copyWith(color: Colors.black54),
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodyLarge
+                            ?.copyWith(color: Colors.black54),
                       ),
                     ],
                   );
@@ -141,7 +142,7 @@ class DashboardScreen extends StatelessWidget {
 
               const SizedBox(height: 18),
 
-              // Last Result card (uses TestResult stream)
+              // Last Result card
               StreamBuilder<TestResult?>(
                 stream: tests.watchLatestTest(),
                 builder: (context, snap) {
@@ -226,7 +227,8 @@ class DashboardScreen extends StatelessWidget {
               ),
 
               const SizedBox(height: 14),
-              // Start New Test button
+
+              // Start New Test
               SizedBox(
                 height: 56,
                 child: FilledButton.icon(
@@ -243,14 +245,13 @@ class DashboardScreen extends StatelessWidget {
 
               const SizedBox(height: 14),
 
-              // Trend Overview (use watchTests(limit: 7))
+              // Trend Overview
               StreamBuilder<List<TestResult>>(
                 stream: tests.watchTests(limit: 7),
                 builder: (context, snap) {
                   final list = snap.data ?? [];
-                  final points = list.reversed
-                      .map(_scoreFromTest)
-                      .toList(); // old->new
+                  final points =
+                      list.reversed.map(_scoreFromTest).toList(); // old->new
 
                   final avg = points.isEmpty
                       ? 0.0
@@ -259,8 +260,8 @@ class DashboardScreen extends StatelessWidget {
                   final status = avg >= 80
                       ? 'Stable'
                       : avg >= 65
-                      ? 'Watch'
-                      : 'Unstable';
+                          ? 'Watch'
+                          : 'Unstable';
 
                   return Card(
                     elevation: 1,
@@ -310,9 +311,7 @@ class DashboardScreen extends StatelessWidget {
                                       style: Theme.of(context)
                                           .textTheme
                                           .titleLarge
-                                          ?.copyWith(
-                                            fontWeight: FontWeight.w800,
-                                          ),
+                                          ?.copyWith(fontWeight: FontWeight.w800),
                                     ),
                                   ],
                                 ),
@@ -339,8 +338,8 @@ class DashboardScreen extends StatelessWidget {
                                             color: status == 'Stable'
                                                 ? Colors.green
                                                 : status == 'Watch'
-                                                ? Colors.orange
-                                                : Colors.red,
+                                                    ? Colors.orange
+                                                    : Colors.red,
                                           ),
                                     ),
                                   ],
@@ -357,7 +356,7 @@ class DashboardScreen extends StatelessWidget {
 
               const SizedBox(height: 14),
 
-              // Bottom tiles
+              // Bottom tiles (UPDATED)
               Row(
                 children: [
                   Expanded(
@@ -365,11 +364,7 @@ class DashboardScreen extends StatelessWidget {
                       icon: Icons.history,
                       label: 'History',
                       onTap: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Open History (wire route next)'),
-                          ),
-                        );
+                        Navigator.pushNamed(context, Routes.historyReports);
                       },
                     ),
                   ),
@@ -379,11 +374,7 @@ class DashboardScreen extends StatelessWidget {
                       icon: Icons.description_outlined,
                       label: 'Reports',
                       onTap: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Open Reports (wire route next)'),
-                          ),
-                        );
+                        Navigator.pushNamed(context, Routes.reports);
                       },
                     ),
                   ),
@@ -426,9 +417,10 @@ class _ActionTile extends StatelessWidget {
               const SizedBox(height: 10),
               Text(
                 label,
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                style: Theme.of(context)
+                    .textTheme
+                    .titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w700),
               ),
             ],
           ),
@@ -448,9 +440,10 @@ class _MiniLineChart extends StatelessWidget {
       return Center(
         child: Text(
           'Not enough data yet',
-          style: Theme.of(
-            context,
-          ).textTheme.bodyMedium?.copyWith(color: Colors.black54),
+          style: Theme.of(context)
+              .textTheme
+              .bodyMedium
+              ?.copyWith(color: Colors.black54),
         ),
       );
     }
