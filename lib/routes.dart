@@ -17,4 +17,6 @@ final Map<String, WidgetBuilder> appRoutes = {
   Routes.login: (_) => const LoginScreen(),
   Routes.signup: (_) => const SignupScreen(),
   Routes.dashboard: (_) => const DashboardScreen(),
+
+  
 };
