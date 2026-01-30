@@ -18,16 +18,15 @@ class EsbudenApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-    title: 'ESBUDEN',
-    debugShowCheckedModeBanner: false,
-    theme: ThemeData(
-    useMaterial3: true,
-    colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2F80ED)),
-    scaffoldBackgroundColor: const Color(0xFFF7F9FB),
-    ),
-    initialRoute: Routes.authLanding,
-    routes: appRoutes,
+      title: 'ESBUDEN',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2F80ED)),
+        scaffoldBackgroundColor: const Color(0xFFF7F9FB),
+      ),
+      initialRoute: Routes.authLanding,
+      routes: appRoutes,
     );
-
   }
 }

@@ -5,11 +5,17 @@ import 'screens/auth/login.dart';
 import 'screens/auth/signup.dart';
 import 'screens/home/dashboard.dart';
 
+// ✅ FIXED: correct path
+import 'screens/test_flow/connect_auto.dart';
+
 class Routes {
   static const authLanding = '/';
   static const login = '/login';
   static const signup = '/signup';
   static const dashboard = '/dashboard';
+
+  // ✅ Start New Test -> Bluetooth connect screen
+  static const connectAuto = '/test/connect';
 }
 
 final Map<String, WidgetBuilder> appRoutes = {
@@ -18,5 +24,6 @@ final Map<String, WidgetBuilder> appRoutes = {
   Routes.signup: (_) => const SignupScreen(),
   Routes.dashboard: (_) => const DashboardScreen(),
 
-  
+  // ✅ IMPORTANT: the widget class inside connect_auto.dart must be ConnectAutoPage
+  Routes.connectAuto: (_) => const ConnectAutoPage(),
 };

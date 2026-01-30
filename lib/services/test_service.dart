@@ -12,10 +12,13 @@ class TestService {
   final FirebaseFirestore _db;
   final FirebaseAuth _auth;
 
+  String? get _uidOrNull => _auth.currentUser?.uid;
+
+  // Keep your old getter for places where you WANT to throw if logged out
   String get _uid {
-    final u = _auth.currentUser;
-    if (u == null) throw Exception('Not logged in');
-    return u.uid;
+    final uid = _uidOrNull;
+    if (uid == null) throw Exception('Not logged in');
+    return uid;
   }
 
   CollectionReference<Map<String, dynamic>> _testsRef() {
@@ -33,7 +36,7 @@ class TestService {
 
     final calcium = (rng.nextDouble() * 2.0) + 1.0; // 1.0..3.0
     final oxalate = (rng.nextDouble() * 0.8) + 0.1; // 0.1..0.9
-    final ph = (rng.nextDouble() * 2.5) + 5.0;      // 5.0..7.5
+    final ph = (rng.nextDouble() * 2.5) + 5.0; // 5.0..7.5
     final uricAcid = (rng.nextDouble() * 0.6) + 0.1; // 0.1..0.7
 
     String risk;
@@ -63,19 +66,56 @@ class TestService {
     await saveTest(generateDemoResult());
   }
 
+  /// ✅ Existing (typed) latest test stream
   Stream<TestResult?> watchLatestTest() {
     return _testsRef()
         .orderBy('createdAt', descending: true)
         .limit(1)
         .snapshots()
-        .map((snap) => snap.docs.isEmpty ? null : TestResult.fromDoc(snap.docs.first));
+        .map((snap) =>
+            snap.docs.isEmpty ? null : TestResult.fromDoc(snap.docs.first));
   }
 
+  /// ✅ Existing (typed) list stream (history)
   Stream<List<TestResult>> watchTests({int limit = 50}) {
     return _testsRef()
         .orderBy('createdAt', descending: true)
         .limit(limit)
         .snapshots()
         .map((snap) => snap.docs.map(TestResult.fromDoc).toList());
+  }
+
+  // ---------------------------------------------------------------------------
+  // ✅ NEW: Raw map streams (handy for dashboard UI without TestResult parsing)
+  // ---------------------------------------------------------------------------
+
+  /// Latest test as a raw Firestore map (for dashboard cards)
+  Stream<Map<String, dynamic>?> watchLatestTestMap() {
+    final uid = _uidOrNull;
+    if (uid == null) return const Stream.empty();
+
+    return _db
+        .collection('users')
+        .doc(uid)
+        .collection('tests')
+        .orderBy('createdAt', descending: true)
+        .limit(1)
+        .snapshots()
+        .map((snap) => snap.docs.isEmpty ? null : snap.docs.first.data());
+  }
+
+  /// Recent tests as raw maps (for trend chart, averages, etc.)
+  Stream<List<Map<String, dynamic>>> watchRecentTestsMap({int limit = 7}) {
+    final uid = _uidOrNull;
+    if (uid == null) return const Stream.empty();
+
+    return _db
+        .collection('users')
+        .doc(uid)
+        .collection('tests')
+        .orderBy('createdAt', descending: true)
+        .limit(limit)
+        .snapshots()
+        .map((snap) => snap.docs.map((d) => d.data()).toList());
   }
 }
