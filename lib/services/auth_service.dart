@@ -12,7 +12,7 @@ class AuthService {
   Stream<User?> authStateChanges() => _auth.authStateChanges();
   User? get currentUser => _auth.currentUser;
 
-  // ✅ NEW: stream the Firestore user doc (users/{uid})
+  //  NEW: stream the Firestore user doc (users/{uid})
   Stream<Map<String, dynamic>?> userDocStream() {
     final uid = currentUser?.uid;
     if (uid == null) return const Stream.empty();
@@ -24,7 +24,7 @@ class AuthService {
         .map((snap) => snap.data());
   }
 
-  // ✅ NEW: stream only the name from Firestore (users/{uid}.name)
+  //  NEW: stream only the name from Firestore (users/{uid}.name)
   Stream<String?> userNameStream() {
     return userDocStream().map((data) => data?['name'] as String?);
   }
