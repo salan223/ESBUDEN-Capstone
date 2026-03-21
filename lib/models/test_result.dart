@@ -1,41 +1,59 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class TestResult {
-  final String? id;
-  final DateTime? createdAt;
-  final String source; // demo | bluetooth
-  final String? deviceId;
-
-  final String overallRisk; // NORMAL | WARNING | HIGH
+  final String id;
+  final DateTime createdAt;
+  final String overallRisk;
   final Map<String, dynamic> biomarkers;
+  final double intensity;
+  final String rawResult;
+  final String imageUrl;
+  final String imagePath;
 
   TestResult({
-    this.id,
-    this.createdAt,
-    required this.source,
-    this.deviceId,
+    this.id = '',
+    required this.createdAt,
     required this.overallRisk,
     required this.biomarkers,
+    required this.intensity,
+    required this.rawResult,
+    required this.imageUrl,
+    required this.imagePath,
   });
 
-  Map<String, dynamic> toMap() => {
-        'createdAt': FieldValue.serverTimestamp(),
-        'source': source,
-        'deviceId': deviceId,
-        'overallRisk': overallRisk,
-        'biomarkers': biomarkers,
-      };
+  factory TestResult.fromMap(Map<String, dynamic> map, String docId) {
+    final createdAtRaw = map['createdAt'];
 
-  static TestResult fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data() ?? {};
-    final ts = data['createdAt'];
+    DateTime createdAt;
+    if (createdAtRaw is Timestamp) {
+      createdAt = createdAtRaw.toDate();
+    } else if (createdAtRaw is String) {
+      createdAt = DateTime.tryParse(createdAtRaw) ?? DateTime.now();
+    } else {
+      createdAt = DateTime.now();
+    }
+
     return TestResult(
-      id: doc.id,
-      createdAt: ts is Timestamp ? ts.toDate() : null,
-      source: (data['source'] ?? 'unknown') as String,
-      deviceId: data['deviceId'] as String?,
-      overallRisk: (data['overallRisk'] ?? 'UNKNOWN') as String,
-      biomarkers: Map<String, dynamic>.from(data['biomarkers'] ?? {}),
+      id: docId,
+      createdAt: createdAt,
+      overallRisk: (map['overallRisk'] ?? 'UNKNOWN').toString(),
+      biomarkers: Map<String, dynamic>.from(map['biomarkers'] ?? {}),
+      intensity: ((map['intensity'] ?? 0) as num).toDouble(),
+      rawResult: (map['rawResult'] ?? '').toString(),
+      imageUrl: (map['imageUrl'] ?? '').toString(),
+      imagePath: (map['imagePath'] ?? '').toString(),
     );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'createdAt': Timestamp.fromDate(createdAt),
+      'overallRisk': overallRisk,
+      'biomarkers': biomarkers,
+      'intensity': intensity,
+      'rawResult': rawResult,
+      'imageUrl': imageUrl,
+      'imagePath': imagePath,
+    };
   }
 }

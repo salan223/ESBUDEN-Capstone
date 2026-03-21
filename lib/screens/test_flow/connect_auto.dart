@@ -1,529 +1,234 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'package:app_settings/app_settings.dart';
+import '../../models/test_result.dart';
+import '../../services/pi_wifi_service.dart';
+import '../../services/test_service.dart';
 
-import 'package:esbuden_app/routes.dart'; // ✅ for Routes.btTroubleshoot
-
-class ConnectAutoPage extends StatefulWidget {
-  const ConnectAutoPage({super.key});
+class ConnectAuto extends StatefulWidget {
+  const ConnectAuto({super.key});
 
   @override
-  State<ConnectAutoPage> createState() => _ConnectAutoPageState();
+  State<ConnectAuto> createState() => _ConnectAutoState();
 }
 
-class _ConnectAutoPageState extends State<ConnectAutoPage> {
-  StreamSubscription<BluetoothAdapterState>? _adapterSub;
-  StreamSubscription<List<ScanResult>>? _scanSub;
+class _ConnectAutoState extends State<ConnectAuto> {
+  final TextEditingController _ipController =
+      TextEditingController(text: 'http://10.0.0.119:5000');
 
-  BluetoothAdapterState _adapterState = BluetoothAdapterState.unknown;
+  final TestService _testService = TestService();
 
-  final Map<String, ScanResult> _seen = {};
-  bool _isScanning = false;
-  bool _isConnecting = false;
-  String? _connectingId;
+  bool _checkingHealth = false;
+  bool _runningTest = false;
+  bool _healthy = false;
+  String _statusMessage = 'Enter Raspberry Pi IP and test connection.';
+  PiTestResponse? _lastPiResponse;
 
-  bool get _btOn => _adapterState == BluetoothAdapterState.on;
-
-  @override
-  void initState() {
-    super.initState();
-
-    _adapterSub = FlutterBluePlus.adapterState.listen((s) async {
-      if (!mounted) return;
-      setState(() => _adapterState = s);
-
-      if (s == BluetoothAdapterState.on) {
-        await _startScan();
-      } else {
-        await _stopScan();
-      }
+  Future<void> _checkConnection() async {
+    setState(() {
+      _checkingHealth = true;
+      _statusMessage = 'Checking Raspberry Pi connection...';
     });
 
-    FlutterBluePlus.adapterState.first.then((s) async {
-      if (!mounted) return;
-      setState(() => _adapterState = s);
-      if (s == BluetoothAdapterState.on) {
-        await _startScan();
-      }
+    try {
+      final service = PiWifiService(baseUrl: _ipController.text.trim());
+      final ok = await service.checkHealth();
+
+      setState(() {
+        _healthy = ok;
+        _statusMessage = ok
+            ? 'Raspberry Pi is reachable.'
+            : 'Raspberry Pi did not respond correctly.';
+      });
+    } catch (e) {
+      setState(() {
+        _healthy = false;
+        _statusMessage = 'Connection failed: $e';
+      });
+    } finally {
+      setState(() {
+        _checkingHealth = false;
+      });
+    }
+  }
+
+  String _mapRisk(String rawResult) {
+    final value = rawResult.toLowerCase().trim();
+
+    if (value == 'strong') return 'HIGH';
+    if (value == 'moderate') return 'WARNING';
+    if (value == 'weak') return 'NORMAL';
+
+    return rawResult.toUpperCase();
+  }
+
+  Future<void> _runTest() async {
+    setState(() {
+      _runningTest = true;
+      _statusMessage = 'Running test on Raspberry Pi...';
     });
+
+    try {
+      final service = PiWifiService(baseUrl: _ipController.text.trim());
+      final response = await service.runTest();
+
+      final testResult = TestResult(
+        createdAt: DateTime.tryParse(response.timestamp) ?? DateTime.now(),
+        overallRisk: _mapRisk(response.result),
+        biomarkers: {
+          'calcium': response.intensity,
+          'oxalate': 0.0,
+          'ph': 0.0,
+          'uricAcid': 0.0,
+        },
+        intensity: response.intensity,
+        rawResult: response.result,
+        imageUrl: response.imageUrl,
+        imagePath: response.imagePath,
+      );
+
+      await _testService.saveTest(testResult);
+
+      setState(() {
+        _lastPiResponse = response;
+        _statusMessage = 'Test completed and saved to Firestore.';
+      });
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Test saved successfully')),
+      );
+    } catch (e) {
+      setState(() {
+        _statusMessage = 'Test failed: $e';
+      });
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Test failed: $e')),
+      );
+    } finally {
+      setState(() {
+        _runningTest = false;
+      });
+    }
+  }
+
+  Widget _buildResultCard() {
+    final result = _lastPiResponse;
+    if (result == null) return const SizedBox.shrink();
+
+    return Card(
+      margin: const EdgeInsets.only(top: 16),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Latest Pi Result',
+                style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 12),
+            Text('Timestamp: ${result.timestamp}'),
+            Text('Intensity: ${result.intensity.toStringAsFixed(2)}'),
+            Text('Result: ${result.result}'),
+            const SizedBox(height: 12),
+            if (result.imageUrl.isNotEmpty)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.network(
+                  result.imageUrl,
+                  height: 220,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    return const Padding(
+                      padding: EdgeInsets.all(12.0),
+                      child: Text('Could not load image from Raspberry Pi'),
+                    );
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
   void dispose() {
-    _scanSub?.cancel();
-    _adapterSub?.cancel();
-    FlutterBluePlus.stopScan();
+    _ipController.dispose();
     super.dispose();
   }
 
-  Future<void> _stopScan() async {
-    _scanSub?.cancel();
-    _scanSub = null;
-
-    if (_isScanning) {
-      try {
-        await FlutterBluePlus.stopScan();
-      } catch (_) {}
-    }
-
-    _isScanning = false;
-    if (mounted) setState(() {});
-  }
-
-  Future<void> _startScan() async {
-    if (!_btOn) return;
-
-    _seen.clear();
-
-    await _stopScan();
-    _isScanning = true;
-    if (mounted) setState(() {});
-
-    _scanSub = FlutterBluePlus.scanResults.listen((results) {
-      bool changed = false;
-      for (final r in results) {
-        final id = r.device.remoteId.str;
-        _seen[id] = r;
-        changed = true;
-      }
-      if (changed && mounted) setState(() {});
-    });
-
-    try {
-      await FlutterBluePlus.startScan(timeout: const Duration(seconds: 12));
-    } catch (_) {
-      // permissions / settings issues
-    } finally {
-      _isScanning = false;
-      if (mounted) setState(() {});
-    }
-  }
-
-  // Filter only ESBUDEN devices (change if your device advertises differently)
-  List<ScanResult> get _esbudenResults {
-    final list = _seen.values.where((r) {
-      final name = r.device.platformName.trim();
-      return name.toUpperCase().contains('ESBUDEN');
-    }).toList();
-
-    list.sort((a, b) => b.rssi.compareTo(a.rssi));
-    return list;
-  }
-
-  int _signalPercent(int rssi) {
-    final clamped = rssi.clamp(-100, -40);
-    final pct = ((clamped + 100) / 60.0) * 100.0;
-    return pct.round().clamp(0, 100);
-  }
-
-  Future<void> _connect(ScanResult r) async {
-    if (_isConnecting) return;
-
-    final device = r.device;
-    final id = device.remoteId.str;
-
-    setState(() {
-      _isConnecting = true;
-      _connectingId = id;
-    });
-
-    await _stopScan();
-
-    try {
-      // best-effort cleanup
-      try {
-        await device.disconnect();
-      } catch (_) {}
-
-      await device.connect(
-        license: License.free,
-        timeout: const Duration(seconds: 15),
-      );
-
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Connected to ${device.platformName} ✅')),
-      );
-
-      setState(() {
-        _isConnecting = false;
-        _connectingId = null;
-      });
-
-      // TODO: navigate to next step in your flow
-      // Navigator.pushReplacementNamed(context, Routes.insertStrip);
-
-    } catch (_) {
-      if (!mounted) return;
-
-      setState(() {
-        _isConnecting = false;
-        _connectingId = null;
-      });
-
-      await _startScan();
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not connect. Try again.')),
-      );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final devices = _esbudenResults;
+    final busy = _checkingHealth || _runningTest;
 
     return Scaffold(
       appBar: AppBar(
-        leading: BackButton(onPressed: () => Navigator.pop(context)),
-        title: const Text('Back'),
+        title: const Text('Connect to ESBUDEN Device'),
       ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 18),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: 18),
-
-              Text(
-                'Select Device',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Choose an ESBUDEN device to connect.',
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: Colors.black54,
-                    ),
-              ),
-
-              const SizedBox(height: 16),
-
-              if (!_btOn)
-                _InfoBanner(
-                  text: 'Bluetooth is off. Turn it on to scan.',
-                  actionText: 'Turn on',
-                  isLoading: false,
-                  onTap: () => AppSettings.openAppSettings(
-                    type: AppSettingsType.bluetooth,
-                  ),
-                )
-              else
-                _InfoBanner(
-                  text: _isScanning ? 'Scanning for devices…' : 'Scan complete',
-                  actionText: 'Rescan',
-                  isLoading: _isScanning, // ✅ spinner while scanning
-                  onTap: _startScan,
-                ),
-
-              const SizedBox(height: 14),
-
-              Expanded(
-                child: ListView(
-                  children: [
-                    if (_btOn && devices.isEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Text(
-                          _isScanning
-                              ? 'No ESBUDEN devices found yet…'
-                              : 'No ESBUDEN devices found. Make sure it’s on and nearby.',
-                          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                color: Colors.black54,
-                              ),
-                        ),
-                      ),
-
-                    ...devices.map((r) {
-                      final name = r.device.platformName.trim().isEmpty
-                          ? 'ESBUDEN Device'
-                          : r.device.platformName.trim();
-                      final pct = _signalPercent(r.rssi);
-                      final isThisConnecting =
-                          _connectingId == r.device.remoteId.str;
-
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 14),
-                        child: _DeviceCard(
-                          name: name,
-                          percent: pct,
-                          isConnecting: isThisConnecting,
-                          onConnect: (_btOn && !_isConnecting)
-                              ? () => _connect(r)
-                              : null,
-                        ),
-                      );
-                    }),
-
-                    const SizedBox(height: 6),
-                    Card(
-                      elevation: 1,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Connection Tips',
-                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                            ),
-                            const SizedBox(height: 12),
-                            const _Tip('Ensure your device is powered on'),
-                            const _Tip('Keep device within 10 feet (3 meters)'),
-                            const _Tip('Make sure Bluetooth is enabled on your phone'),
-                          ],
-                        ),
-                      ),
-                    ),
-
-                    const SizedBox(height: 18),
-
-                    // ✅ Opens troubleshooting, then auto-rescans on return
-                    Center(
-                      child: TextButton(
-                        onPressed: () async {
-                          final shouldRescan = await Navigator.pushNamed(
-                            context,
-                            Routes.btTroubleshoot,
-                          );
-
-                          if (!mounted) return;
-
-                          if (shouldRescan == true && _btOn) {
-                            await _startScan();
-                          }
-                        },
-                        child: const Text('Having trouble connecting?'),
-                      ),
-                    ),
-
-                    const SizedBox(height: 10),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _InfoBanner extends StatelessWidget {
-  const _InfoBanner({
-    required this.text,
-    required this.actionText,
-    required this.isLoading,
-    required this.onTap,
-  });
-
-  final String text;
-  final String actionText;
-  final bool isLoading;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(14),
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: primary.withOpacity(0.08),
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Row(
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: ListView(
           children: [
-            // ✅ Always animates: indeterminate spinner
-            if (isLoading)
-              const SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(strokeWidth: 2.5),
-              )
-            else
-              Icon(Icons.autorenew, color: primary),
-
-            const SizedBox(width: 10),
-
-            Expanded(
-              child: Text(
-                text,
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: primary,
-                      fontWeight: FontWeight.w600,
-                    ),
+            const Text(
+              'Raspberry Pi Base URL',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _ipController,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                hintText: 'http://10.0.0.119:5000',
               ),
+              keyboardType: TextInputType.url,
             ),
-
-            Text(
-              actionText,
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: primary,
-                    fontWeight: FontWeight.w800,
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: busy ? null : _checkConnection,
+                    child: _checkingHealth
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Check Connection'),
                   ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: (!_healthy || busy) ? null : _runTest,
+                    child: _runningTest
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Run Test'),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _DeviceCard extends StatelessWidget {
-  const _DeviceCard({
-    required this.name,
-    required this.percent,
-    required this.isConnecting,
-    required this.onConnect,
-  });
-
-  final String name;
-  final int percent;
-  final bool isConnecting;
-  final VoidCallback? onConnect;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          children: [
+            const SizedBox(height: 16),
             Container(
-              height: 54,
-              width: 54,
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primary.withOpacity(0.10),
-                borderRadius: BorderRadius.circular(14),
+                color: _healthy
+                    ? Colors.green.withOpacity(0.08)
+                    : Colors.grey.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(12),
               ),
-              child: Icon(
-                Icons.bluetooth,
-                color: Theme.of(context).colorScheme.primary,
-                size: 28,
-              ),
+              child: Text(_statusMessage),
             ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    name,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      _SignalBars(percent: percent),
-                      const SizedBox(width: 8),
-                      Text(
-                        '$percent%',
-                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                              color: Colors.black54,
-                              fontWeight: FontWeight.w700,
-                            ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            SizedBox(
-              height: 44,
-              child: FilledButton(
-                onPressed: onConnect,
-                child: Text(
-                  isConnecting ? 'Connecting...' : 'Connect',
-                  style: const TextStyle(fontWeight: FontWeight.w800),
-                ),
-              ),
-            ),
+            _buildResultCard(),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _SignalBars extends StatelessWidget {
-  const _SignalBars({required this.percent});
-  final int percent;
-
-  int get bars {
-    if (percent >= 80) return 4;
-    if (percent >= 60) return 3;
-    if (percent >= 40) return 2;
-    if (percent >= 20) return 1;
-    return 0;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    Widget bar(bool on) => Container(
-          width: 6,
-          height: on ? 14 : 10,
-          margin: const EdgeInsets.only(right: 3),
-          decoration: BoxDecoration(
-            color: on ? Theme.of(context).colorScheme.primary : Colors.black12,
-            borderRadius: BorderRadius.circular(3),
-          ),
-        );
-
-    return Row(
-      children: [
-        bar(bars >= 1),
-        bar(bars >= 2),
-        bar(bars >= 3),
-        bar(bars >= 4),
-      ],
-    );
-  }
-}
-
-class _Tip extends StatelessWidget {
-  const _Tip(this.text);
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.circle, size: 8, color: primary),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              text,
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: primary,
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
-          ),
-        ],
       ),
     );
   }

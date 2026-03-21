@@ -33,7 +33,7 @@ final Map<String, WidgetBuilder> appRoutes = {
   Routes.signup: (_) => const SignupScreen(),
   Routes.dashboard: (_) => const DashboardScreen(),
 
-  Routes.connectAuto: (_) => const ConnectAutoPage(),
+  Routes.connectAuto: (_) => const ConnectAuto(),
   Routes.historyReports: (_) => const HistoryReportsPage(),
   Routes.reports: (_) => const ReportsPage(),
   Routes.btTroubleshoot: (_) => const ConnectionTroubleshootingPage(),
