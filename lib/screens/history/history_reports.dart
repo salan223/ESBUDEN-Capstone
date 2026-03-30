@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 
+import '../../services/auth_service.dart';
 import '../../services/test_service.dart';
 import '../../models/test_result.dart';
+
+import 'test_report_detail.dart';
 
 enum SortMode { newestFirst, oldestFirst, highestRiskFirst }
 
@@ -16,6 +19,7 @@ class HistoryReportsPage extends StatefulWidget {
 
 class _HistoryReportsPageState extends State<HistoryReportsPage> {
   final tests = TestService();
+  final auth = AuthService();
 
   // Top pills
   int _rangeIndex = 0; // 0=All, 1=7 days, 2=30 days
@@ -26,6 +30,9 @@ class _HistoryReportsPageState extends State<HistoryReportsPage> {
   final Set<String> _statusFilter = {}; // NORMAL/WARNING/HIGH
   final Set<String> _biomarkerFilter = {'oxalate', 'calcium', 'uricAcid'};
   SortMode _sortMode = SortMode.newestFirst;
+
+  DateTime _startOfDay(DateTime d) => DateTime(d.year, d.month, d.day, 0, 0, 0);
+  DateTime _endOfDay(DateTime d) => DateTime(d.year, d.month, d.day, 23, 59, 59);
 
   // Used by chart + list
   List<TestResult> _applyFilters(List<TestResult> input) {
@@ -90,9 +97,6 @@ class _HistoryReportsPageState extends State<HistoryReportsPage> {
     return filtered;
   }
 
-  DateTime _startOfDay(DateTime d) => DateTime(d.year, d.month, d.day, 0, 0, 0);
-  DateTime _endOfDay(DateTime d) => DateTime(d.year, d.month, d.day, 23, 59, 59);
-
   Color _riskColor(String risk) {
     switch (risk.toUpperCase()) {
       case 'NORMAL':
@@ -115,9 +119,13 @@ class _HistoryReportsPageState extends State<HistoryReportsPage> {
   }
 
   double? _bioVal(TestResult t, String key) {
-    final v = t.biomarkers?[key];
+    // your model likely has: Map<String, dynamic> biomarkers;
+    // keep this safe anyway
+    final m = t.biomarkers;
+    final v = m[key];
     if (v is num) return v.toDouble();
-    return null;
+    final parsed = double.tryParse(v?.toString() ?? '');
+    return parsed;
   }
 
   Future<void> _openFilterSheet() async {
@@ -146,6 +154,7 @@ class _HistoryReportsPageState extends State<HistoryReportsPage> {
     setState(() {
       _from = result.from;
       _to = result.to;
+
       _statusFilter
         ..clear()
         ..addAll(result.status);
@@ -165,244 +174,259 @@ class _HistoryReportsPageState extends State<HistoryReportsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<TestResult>>(
-      stream: tests.watchTests(limit: 200),
-      builder: (context, snap) {
-        final all = snap.data ?? [];
-        final filtered = _applyFilters(all);
+    final email = auth.currentUser?.email ?? '—';
 
-        // For chart, sort oldest -> newest (trend direction)
-        final chartData = [...filtered]
-          ..sort((a, b) =>
-              (a.createdAt ?? DateTime.now()).compareTo(b.createdAt ?? DateTime.now()));
+    return StreamBuilder<String?>(
+      stream: auth.userNameStream(),
+      builder: (context, nameSnap) {
+        final patientName = (nameSnap.data == null || nameSnap.data!.trim().isEmpty)
+            ? 'User'
+            : nameSnap.data!.trim();
 
-        return Scaffold(
-          appBar: AppBar(
-            leading: BackButton(onPressed: () => Navigator.pop(context)),
-            title: const Text('Back'),
-            actions: [
-              IconButton(
-                tooltip: 'Filter',
-                onPressed: _openFilterSheet,
-                icon: const Icon(Icons.filter_alt_outlined),
+        return StreamBuilder<List<TestResult>>(
+          stream: tests.watchTests(limit: 200),
+          builder: (context, snap) {
+            final all = snap.data ?? [];
+            final filtered = _applyFilters(all);
+
+            // For chart, sort oldest -> newest (trend direction)
+            final chartData = [...filtered]
+              ..sort((a, b) =>
+                  (a.createdAt ?? DateTime.now()).compareTo(b.createdAt ?? DateTime.now()));
+
+            return Scaffold(
+              appBar: AppBar(
+                leading: BackButton(onPressed: () => Navigator.pop(context)),
+                title: const Text('Back'),
+                actions: [
+                  IconButton(
+                    tooltip: 'Filter',
+                    onPressed: _openFilterSheet,
+                    icon: const Icon(Icons.filter_alt_outlined),
+                  ),
+                ],
               ),
-            ],
-          ),
-          body: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 18),
-              child: ListView(
-                children: [
-                  const SizedBox(height: 6),
-                  Text(
-                    'History & Reports',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.w900,
-                        ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Track your biomarker trends over time',
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                          color: Colors.black54,
-                        ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Range pills
-                  Row(
+              body: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  child: ListView(
                     children: [
-                      _Pill(
-                        text: 'All Tests',
-                        selected: _rangeIndex == 0,
-                        onTap: () => setState(() {
-                          _rangeIndex = 0;
-                          _from = null;
-                          _to = null;
-                        }),
-                      ),
-                      const SizedBox(width: 10),
-                      _Pill(
-                        text: 'Last 7 Days',
-                        selected: _rangeIndex == 1,
-                        onTap: () => setState(() {
-                          _rangeIndex = 1;
-                          _from = null;
-                          _to = null;
-                        }),
-                      ),
-                      const SizedBox(width: 10),
-                      _Pill(
-                        text: 'Last 30 Days',
-                        selected: _rangeIndex == 2,
-                        onTap: () => setState(() {
-                          _rangeIndex = 2;
-                          _from = null;
-                          _to = null;
-                        }),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // Biomarker Trends card
-                  Card(
-                    elevation: 1,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(Icons.show_chart,
-                                  color: Theme.of(context).colorScheme.primary),
-                              const SizedBox(width: 8),
-                              Text(
-                                'Biomarker Trends',
-                                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          SizedBox(
-                            height: 260,
-                            child: _TrendChart(
-                              tests: chartData,
-                              biomarkersToShow: _biomarkerFilter,
-                              getValue: _bioVal,
+                      const SizedBox(height: 6),
+                      Text(
+                        'History & Reports',
+                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                              fontWeight: FontWeight.w900,
                             ),
-                          ),
-                          const SizedBox(height: 12),
-                          Wrap(
-                            spacing: 18,
-                            runSpacing: 10,
-                            children: [
-                              if (_biomarkerFilter.contains('oxalate'))
-                                const _LegendDot(label: 'Oxalate', color: Colors.orange),
-                              if (_biomarkerFilter.contains('calcium'))
-                                const _LegendDot(label: 'Calcium', color: Colors.blue),
-                              if (_biomarkerFilter.contains('uricAcid'))
-                                const _LegendDot(label: 'Uric Acid', color: Colors.green),
-                              if (_biomarkerFilter.contains('ph'))
-                                const _LegendDot(label: 'pH', color: Colors.purple),
-                            ],
-                          ),
-                        ],
                       ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  Text(
-                    'Past Test Results',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w900,
-                        ),
-                  ),
-                  const SizedBox(height: 10),
-
-                  if (snap.connectionState == ConnectionState.waiting && all.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 16),
-                      child: Center(child: CircularProgressIndicator()),
-                    )
-                  else if (filtered.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 10),
-                      child: Text(
-                        'No results found with your current filters.',
+                      const SizedBox(height: 6),
+                      Text(
+                        'Track your biomarker trends over time',
                         style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                               color: Colors.black54,
                             ),
                       ),
-                    )
-                  else
-                    ...filtered.map((t) {
-                      final dt = t.createdAt ?? DateTime.now();
-                      final dateText = DateFormat('MMM d, yyyy').format(dt);
-                      final risk = (t.overallRisk ?? '').toUpperCase();
-                      final chipColor = _riskColor(risk);
+                      const SizedBox(height: 16),
 
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: Card(
-                          elevation: 1,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(18),
+                      // Range pills
+                      Row(
+                        children: [
+                          _Pill(
+                            text: 'All Tests',
+                            selected: _rangeIndex == 0,
+                            onTap: () => setState(() {
+                              _rangeIndex = 0;
+                              _from = null;
+                              _to = null;
+                            }),
                           ),
-                          child: ListTile(
-                            title: Text(
-                              dateText,
-                              style: const TextStyle(fontWeight: FontWeight.w700),
+                          const SizedBox(width: 10),
+                          _Pill(
+                            text: 'Last 7 Days',
+                            selected: _rangeIndex == 1,
+                            onTap: () => setState(() {
+                              _rangeIndex = 1;
+                              _from = null;
+                              _to = null;
+                            }),
+                          ),
+                          const SizedBox(width: 10),
+                          _Pill(
+                            text: 'Last 30 Days',
+                            selected: _rangeIndex == 2,
+                            onTap: () => setState(() {
+                              _rangeIndex = 2;
+                              _from = null;
+                              _to = null;
+                            }),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      // Biomarker Trends card
+                      Card(
+                        elevation: 1,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(Icons.show_chart,
+                                      color: Theme.of(context).colorScheme.primary),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Biomarker Trends',
+                                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              SizedBox(
+                                height: 260,
+                                child: _TrendChart(
+                                  tests: chartData,
+                                  biomarkersToShow: _biomarkerFilter,
+                                  getValue: _bioVal,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Wrap(
+                                spacing: 18,
+                                runSpacing: 10,
+                                children: [
+                                  if (_biomarkerFilter.contains('oxalate'))
+                                    const _LegendDot(label: 'Oxalate', color: Colors.orange),
+                                  if (_biomarkerFilter.contains('calcium'))
+                                    const _LegendDot(label: 'Calcium', color: Colors.blue),
+                                  if (_biomarkerFilter.contains('uricAcid'))
+                                    const _LegendDot(label: 'Uric Acid', color: Colors.green),
+                                  if (_biomarkerFilter.contains('ph'))
+                                    const _LegendDot(label: 'pH', color: Colors.purple),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      Text(
+                        'Past Test Results',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w900,
                             ),
-                            subtitle: Padding(
-                              padding: const EdgeInsets.only(top: 10),
-                              child: Align(
-                                alignment: Alignment.centerLeft,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 14,
-                                    vertical: 8,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: chipColor.withOpacity(0.12),
-                                    border: Border.all(color: chipColor.withOpacity(0.35)),
-                                    borderRadius: BorderRadius.circular(999),
-                                  ),
-                                  child: Text(
-                                    _riskLabel(risk),
-                                    style: TextStyle(
-                                      color: chipColor,
-                                      fontWeight: FontWeight.w800,
+                      ),
+                      const SizedBox(height: 10),
+
+                      if (snap.connectionState == ConnectionState.waiting && all.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 16),
+                          child: Center(child: CircularProgressIndicator()),
+                        )
+                      else if (filtered.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 10),
+                          child: Text(
+                            'No results found with your current filters.',
+                            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                  color: Colors.black54,
+                                ),
+                          ),
+                        )
+                      else
+                        ...filtered.map((t) {
+                          final dt = t.createdAt ?? DateTime.now();
+                          final dateText = DateFormat('MMM d, yyyy').format(dt);
+                          final risk = (t.overallRisk ?? '').toUpperCase();
+                          final chipColor = _riskColor(risk);
+
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: Card(
+                              elevation: 1,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                              child: ListTile(
+                                title: Text(
+                                  dateText,
+                                  style: const TextStyle(fontWeight: FontWeight.w700),
+                                ),
+                                subtitle: Padding(
+                                  padding: const EdgeInsets.only(top: 10),
+                                  child: Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 14,
+                                        vertical: 8,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: chipColor.withOpacity(0.12),
+                                        border: Border.all(color: chipColor.withOpacity(0.35)),
+                                        borderRadius: BorderRadius.circular(999),
+                                      ),
+                                      child: Text(
+                                        _riskLabel(risk),
+                                        style: TextStyle(
+                                          color: chipColor,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
                                     ),
                                   ),
                                 ),
+                                trailing: const Icon(Icons.chevron_right),
+
+                                
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => TestReportDetailPage(test:t),
+                                    ),
+                                  );
+                                },
                               ),
                             ),
-                            trailing: const Icon(Icons.chevron_right),
-                            onTap: () {
-                              // TODO: open detail page (optional)
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Open result details (wire later)')),
-                              );
-                            },
+                          );
+                        }),
+
+                      const SizedBox(height: 18),
+
+                      SizedBox(
+                        height: 56,
+                        child: FilledButton.icon(
+                          onPressed: () {
+                            // optional: wire later
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Export (wire later)')),
+                            );
+                          },
+                          icon: const Icon(Icons.download),
+                          label: const Text(
+                            'Export All Reports',
+                            style: TextStyle(fontWeight: FontWeight.w800),
                           ),
                         ),
-                      );
-                    }),
-
-                  const SizedBox(height: 18),
-
-                  SizedBox(
-                    height: 56,
-                    child: FilledButton.icon(
-                      onPressed: () {
-                        // TODO: export PDF/CSV later
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Export (wire later)')),
-                        );
-                      },
-                      icon: const Icon(Icons.download),
-                      label: const Text(
-                        'Export All Reports',
-                        style: TextStyle(fontWeight: FontWeight.w800),
                       ),
-                    ),
-                  ),
 
-                  const SizedBox(height: 24),
-                ],
+                      const SizedBox(height: 24),
+                    ],
+                  ),
+                ),
               ),
-            ),
-          ),
+            );
+          },
         );
       },
     );
@@ -492,7 +516,6 @@ class _TrendChart extends StatelessWidget {
       );
     }
 
-    // Build series
     LineChartBarData? series(String key, Color color) {
       if (!biomarkersToShow.contains(key)) return null;
 
@@ -584,6 +607,8 @@ class _FilterState {
   SortMode sortMode;
 }
 
+// ---------------- FILTER SHEET ----------------
+
 class _FilterSheet extends StatefulWidget {
   const _FilterSheet({required this.initial});
   final _FilterState initial;
@@ -660,7 +685,6 @@ class _FilterSheetState extends State<_FilterSheet> {
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
 
-    // ✅ Makes the bottom sheet scrollable + draggable (no overflow)
     return DraggableScrollableSheet(
       expand: false,
       initialChildSize: 0.88,
@@ -676,8 +700,6 @@ class _FilterSheetState extends State<_FilterSheet> {
               child: Column(
                 children: [
                   const SizedBox(height: 6),
-
-                  // Header
                   Row(
                     children: [
                       Icon(Icons.filter_alt_outlined, color: primary),
@@ -695,15 +717,12 @@ class _FilterSheetState extends State<_FilterSheet> {
                       ),
                     ],
                   ),
-
                   const SizedBox(height: 6),
 
-                  // ✅ Scrollable content
                   Expanded(
                     child: ListView(
                       controller: scrollController,
                       children: [
-                        // Date range
                         Text(
                           'Date Range',
                           style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -717,7 +736,6 @@ class _FilterSheetState extends State<_FilterSheet> {
 
                         const SizedBox(height: 18),
 
-                        // Status filter
                         Text(
                           'Status Filter',
                           style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -761,7 +779,6 @@ class _FilterSheetState extends State<_FilterSheet> {
 
                         const SizedBox(height: 18),
 
-                        // Biomarker filter
                         Text(
                           'Biomarker Filter',
                           style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -814,7 +831,6 @@ class _FilterSheetState extends State<_FilterSheet> {
 
                         const SizedBox(height: 18),
 
-                        // Sort
                         Text(
                           'Sort By',
                           style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -822,7 +838,6 @@ class _FilterSheetState extends State<_FilterSheet> {
                               ),
                         ),
                         const SizedBox(height: 10),
-
                         _SortTile(
                           title: 'Newest First',
                           subtitle: 'Most recent tests first',
@@ -843,13 +858,11 @@ class _FilterSheetState extends State<_FilterSheet> {
                           selected: sortMode == SortMode.highestRiskFirst,
                           onTap: () => setState(() => sortMode = SortMode.highestRiskFirst),
                         ),
-
-                        const SizedBox(height: 90), // space so last tile isn't behind buttons
+                        const SizedBox(height: 90),
                       ],
                     ),
                   ),
 
-                  // ✅ Sticky bottom buttons (no overflow)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 12, top: 10),
                     child: Column(
@@ -886,7 +899,6 @@ class _FilterSheetState extends State<_FilterSheet> {
     );
   }
 }
-
 
 class _DateField extends StatelessWidget {
   const _DateField({required this.label, required this.value, required this.onTap});
