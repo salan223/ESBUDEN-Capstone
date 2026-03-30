@@ -37,7 +37,7 @@ class AuthLandingScreen extends StatelessWidget {
                   const Icon(Icons.health_and_safety, size: 72),
                   const SizedBox(height: 16),
                   const Text(
-                    'Welcome to ESBUDEN',
+                    'Welcome to URI-TRACK',
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
                   ),
