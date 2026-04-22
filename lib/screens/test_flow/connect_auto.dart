@@ -35,16 +35,16 @@ class _ConnectAutoState extends State<ConnectAuto> {
   }
 
   Future<void> _loadSavedUrlOnly() async {
-  final prefs = await SharedPreferences.getInstance();
-  final savedUrl = prefs.getString(_savedBaseUrlKey);
+    final prefs = await SharedPreferences.getInstance();
+    final savedUrl = prefs.getString(_savedBaseUrlKey);
 
-  if (savedUrl != null && savedUrl.isNotEmpty) {
-    _ipController.text = savedUrl;
-    setState(() {
-      _statusMessage = 'Loaded last used device URL.';
-    });
+    if (savedUrl != null && savedUrl.isNotEmpty) {
+      _ipController.text = savedUrl;
+      setState(() {
+        _statusMessage = 'Loaded last used device URL.';
+      });
+    }
   }
-}
 
   Future<void> _saveBaseUrl(String url) async {
     final prefs = await SharedPreferences.getInstance();
@@ -137,6 +137,8 @@ class _ConnectAutoState extends State<ConnectAuto> {
     if (value.contains('moderate')) return 'WARNING';
     if (value.contains('weak')) return 'NORMAL';
     if (value.contains('no visible change')) return 'NORMAL';
+    if (value.contains('no strip inserted')) return 'ERROR';
+    if (value.contains('strip was not detected clearly')) return 'ERROR';
     if (value.isEmpty) return 'UNKNOWN';
 
     return 'RESULT';
@@ -150,6 +152,8 @@ class _ConnectAutoState extends State<ConnectAuto> {
         return Colors.orange;
       case 'NORMAL':
         return Colors.green;
+      case 'ERROR':
+        return Colors.red;
       default:
         return Colors.blueGrey;
     }
@@ -185,6 +189,26 @@ class _ConnectAutoState extends State<ConnectAuto> {
       final service = PiWifiService(baseUrl: _ipController.text.trim());
       final response = await service.runTest();
 
+      setState(() {
+        _lastPiResponse = response;
+        _statusMessage = response.result.isNotEmpty
+            ? response.result
+            : 'Test completed.';
+      });
+
+      final lowerMsg = response.result.toLowerCase();
+      final noStripDetected = lowerMsg.contains('no strip inserted') ||
+          lowerMsg.contains('please insert a test strip') ||
+          lowerMsg.contains('strip was not detected clearly');
+
+      if (noStripDetected || !response.valid) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(response.result)),
+        );
+        return;
+      }
+
       final testResult = TestResult(
         createdAt: DateTime.now(),
         overallRisk: _mapRisk(response.result),
@@ -204,7 +228,6 @@ class _ConnectAutoState extends State<ConnectAuto> {
       await _saveBaseUrl(_ipController.text.trim());
 
       setState(() {
-        _lastPiResponse = response;
         _statusMessage = 'Test completed and saved to Firestore.';
       });
 
@@ -272,8 +295,9 @@ class _ConnectAutoState extends State<ConnectAuto> {
           children: [
             CircleAvatar(
               radius: 24,
-              backgroundColor:
-                  _healthy ? Colors.green.withOpacity(0.12) : Colors.grey.shade200,
+              backgroundColor: _healthy
+                  ? Colors.green.withOpacity(0.12)
+                  : Colors.grey.shade200,
               child: Icon(
                 _healthy ? Icons.wifi : Icons.wifi_off,
                 color: _healthy ? Colors.green : Colors.grey,
@@ -335,7 +359,6 @@ class _ConnectAutoState extends State<ConnectAuto> {
               style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 12),
-
             Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -374,9 +397,7 @@ class _ConnectAutoState extends State<ConnectAuto> {
                   ),
               ],
             ),
-
             const SizedBox(height: 18),
-
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(14),
@@ -393,7 +414,6 @@ class _ConnectAutoState extends State<ConnectAuto> {
                 ),
               ),
             ),
-
             const SizedBox(height: 18),
             _infoTile(
               icon: Icons.access_time,
@@ -424,7 +444,6 @@ class _ConnectAutoState extends State<ConnectAuto> {
               label: 'Change Score',
               value: result.changeScore.toStringAsFixed(2),
             ),
-
             const SizedBox(height: 16),
             const Text(
               'Intensity Level',
@@ -438,7 +457,6 @@ class _ConnectAutoState extends State<ConnectAuto> {
                 value: intensityNormalized,
               ),
             ),
-
             const SizedBox(height: 20),
             const Text(
               'Captured Strip Image',
